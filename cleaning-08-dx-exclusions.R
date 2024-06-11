@@ -155,6 +155,6 @@
     
 # export -----------------------------------------------------------------------
     
-  write.csv(working_data, 'data/working-data/data-post-08.csv', row.names = FALSE)
+  write.csv(temp, 'data/final-data/steatosis-cohort-0611.csv', row.names = FALSE)
     
     
