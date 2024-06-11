@@ -10,7 +10,7 @@
   library(tidyverse)
   library(data.table)
 
-  source('code/cleaning-functions.R')
+  source('code/cleaning/cleaning-functions.R')
   
   data = read.csv('data/working-data/data-post-04.csv')
   bmi_data = load_multiple_csv('data/data-direct-exports/bmi-data', verbose = TRUE)
