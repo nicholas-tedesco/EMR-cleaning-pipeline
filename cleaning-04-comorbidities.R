@@ -1,9 +1,7 @@
 # README -----------------------------------------------------------------------
 # 
 #   name: cleaning-04-comorbidities.R
-#   goal: prepare + merge comorbidity data by... 
-#         - merging comorbidity data to encounters 
-#         - defining comorbidities
+#   goal: define + merge comorbidity variables 
 # 
 # ------------------------------------------------------------------------------
 

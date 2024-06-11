@@ -1,9 +1,7 @@
 # README -----------------------------------------------------------------------
 # 
 #   name: cleaning-03-outcomes.R
-#   goal: prepare + merge outcome data by... 
-#         - matching diagnosis data to encounters
-#         - defining conditions (both death and non-death related)  
+#   goal: define + merge outcome variables 
 # 
 # ------------------------------------------------------------------------------
 
