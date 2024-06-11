@@ -109,7 +109,10 @@
       mutate(
         # nonspecific death variables 
         death.status = ifelse(is.na(date.death), 0, 1), 
-        death.time = difftime(date.death, date.index, units = 'days'),
+        death.time = ifelse(death.status == 1, 
+          difftime(date.death, date.index, units = 'days'),
+          difftime(date.last.any, date.index, units = 'days')
+        ), 
         # specific causes of death 
         death.liver.status = ifelse(if_any(select(., UnderlyingCOD_ICD10:RelatedCOD7_ICD10) %>% colnames(), function(x) grepl('^K7|C155|C155\\.0|C155\\.2', x)), 1, 0), 
         death.cancer.status = ifelse(if_any(select(., UnderlyingCOD_ICD10:RelatedCOD7_ICD10) %>% colnames(), function(x) grepl('^C', x)), 1, 0), 
