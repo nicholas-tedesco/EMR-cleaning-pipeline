@@ -14,7 +14,7 @@
   library(data.table)
   library(glue)
 
-  source('code/cleaning-functions.R')
+  source('code/cleaning/cleaning-functions.R')
 
   working_data = read.csv(file = 'data/working-data/data-post-01.csv')
   enc_data = load_multiple_csv('data/data-direct-exports/encounter-data', verbose = TRUE)
@@ -78,7 +78,7 @@
 
   
 # export -----------------------------------------------------------------------
-    
-  write.csv(working_data, 'data/working-data/data_post_02.csv', row.names = FALSE)
+   
+  write.csv(working_data, 'data/working-data/data-post-02.csv', row.names = FALSE)
     
     

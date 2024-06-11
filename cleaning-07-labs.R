@@ -14,7 +14,7 @@
 
   options(dplyr.summarise.inform = FALSE)
 
-  source('code/cleaning-functions.R')
+  source('code/cleaning/cleaning-functions.R')
 
   data = read.csv('data/working-data/data-post-06.csv')
   
@@ -57,28 +57,28 @@
       # low and high are included in feasible bounds 
   
     lab_criteria['SOD']   = c(115, 150)
-    lab_criteria['UN']    = c(0, 200)
-    lab_criteria['CREAT'] = c(0, 10)
+    lab_criteria['UN']    = c(NA, 200)
+    lab_criteria['CREAT'] = c(NA, 10)
     lab_criteria['GLUC']  = c(20, 1000)
-    lab_criteria['A1C']   = c(0, 20)
-    lab_criteria['WBC']   = c(0, 100)
+    lab_criteria['A1C']   = c(NA, 20)
+    lab_criteria['WBC']   = c(NA, 100)
     lab_criteria['HGB']   = c(4, 25)
-    lab_criteria['PLT']   = c(0, 1000)
+    lab_criteria['PLT']   = c(NA, 1000)
     lab_criteria['MCV']   = c(40, 200)
     lab_criteria['MCHC']  = c(25, 50)
     lab_criteria['RDW']   = c(5, 25)
-    lab_criteria['EOS']   = c(0, 20)
-    lab_criteria['NEUT']  = c(0, 100)
-    lab_criteria['LYMPH'] = c(0, 100)
-    lab_criteria['BASO']  = c(0, 20)
-    lab_criteria['MONO']  = c(0, 20)
-    lab_criteria['LDLC']  = c(0, 300)
-    lab_criteria['HDL']   = c(0, 150)
-    lab_criteria['TRIG']  = c(0, 2000)
-    lab_criteria['TBIL']  = c(0, 50)
-    lab_criteria['AST']   = c(0, 2000)
-    lab_criteria['ALT']   = c(0, 2000)
-    lab_criteria['ALK']   = c(0, 2000)
+    lab_criteria['EOS']   = c(NA, 20)
+    lab_criteria['NEUT']  = c(NA, 100)
+    lab_criteria['LYMPH'] = c(NA, 100)
+    lab_criteria['BASO']  = c(NA, 20)
+    lab_criteria['MONO']  = c(NA, 20)
+    lab_criteria['LDLC']  = c(NA, 300)
+    lab_criteria['HDL']   = c(NA, 150)
+    lab_criteria['TRIG']  = c(NA, 2000)
+    lab_criteria['TBIL']  = c(NA, 50)
+    lab_criteria['AST']   = c(NA, 2000)
+    lab_criteria['ALT']   = c(NA, 2000)
+    lab_criteria['ALK']   = c(NA, 2000)
     lab_criteria['ALB']   = c(1, 6)
     lab_criteria['GLOB']  = c(1, 16)
 
@@ -90,9 +90,18 @@
       lower  = bounds[[1]] %>% as.numeric()
       upper  = bounds[[2]] %>% as.numeric()
       
-      temp = get(lab) 
-      temp_filtered = temp %>% 
-        filter(value_num >= lower & value_num <= upper)
+      temp = get(lab)
+      
+      if (!is.na(lower) & !is.na(upper)) {
+        temp_filtered = temp %>% 
+          filter(value_num >= lower & value_num <= upper)
+      } else if (!is.na(lower)) {
+        temp_filtered = temp %>% 
+          filter(value_num >= lower)
+      } else if (!is.na(upper)) {
+        temp_filtered = temp %>% 
+          filter(value_num <= upper)
+      }
       
       message(glue('Dropped {nrow(temp) - nrow(temp_filtered)} rows outside of range {lower}-{upper} for {lab}'))
       
@@ -180,7 +189,7 @@
       
       temp = get(lab) 
       temp_medians = temp %>% 
-        group_by(PatientID, date.index, .groups = 'drop') %>% 
+        group_by(PatientID, date.index) %>% 
         summarize({{lab_name}} := median(value_num))
       
       message(glue('Finished calculation for {lab}'))
@@ -214,11 +223,5 @@
 # export -----------------------------------------------------------------------
     
   write.csv(working_data, 'data/working-data/data-post-07.csv', row.names = FALSE)
-  
-  
-# testing ----------------------------------------------------------------------
-    
-
-  
   
   

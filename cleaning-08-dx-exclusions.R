@@ -1,10 +1,7 @@
 # README -----------------------------------------------------------------------
 # 
-#   fname: cleaning-08-dx-exclusions.R
-#   goals: 
-#   - prepare exclusion ICD codes for DataDirect
-#   - load in + clean exclusion diagnoses 
-#   - apply exclusions to data 
+#   name: cleaning-08-dx-exclusions.R
+#   goal: apply diagnosis-based exclusions to data 
 # 
 # ------------------------------------------------------------------------------
 
@@ -14,7 +11,7 @@
   library(openxlsx)
   library(data.table)
 
-  source('code/cleaning-functions.R')
+  source('code/cleaning/cleaning-functions.R')
 
   data = read.csv('data/working-data/data-post-07.csv')
   enc_data = load_multiple_csv('data/data-direct-exports/encounter-data', verbose = TRUE)
@@ -64,8 +61,8 @@
   
   ## match encounter dates to diagnosis records  
   
-    cancer   <- join_dx_enc_date(cancer, enc_data)       # 34,731 / 993,555 rows with missing date
-    liver_tx <- join_dx_enc_date(liver_tx, enc_data)     # 9,433 / 306,703 rows with missing date
+    cancer   <- join_enc_date(cancer, enc_data)     
+    liver_tx <- join_enc_date(liver_tx, enc_data)     
     
     
 # exclusion 1: no cancers one year after index date or earlier -----------------
@@ -82,8 +79,9 @@
     
     cancer_index_dates <- cancer_dates %>% 
       left_join(
-        data %>% select(PatientID, date.index), 
-        by = 'PatientID'
+        data %>% select(PatientID, date.index) %>% distinct(), 
+        by = 'PatientID', 
+        relationship = 'one-to-many'
       )
       ## will be 1:many relationship; 1 patient in cancer dates may be associated with multiple admissions
     
@@ -119,10 +117,11 @@
     
     liver_tx_dates <- liver_tx_dates %>% 
       left_join(
-        data %>% select(PatientID, date.index), 
-        by = 'PatientID'
+        data %>% select(PatientID, date.index) %>% distinct(), 
+        by = 'PatientID', 
+        relationship = 'one-to-many'
       )
-      ## will be 1:many relationship; 1 patient in cancer dates may be associated with multiple admissions
+      ## will be 1:many relationship; 1 patient in liver dates may be associated with multiple admissions
     
   ## calculate time difference + filter to patients in violation 
     
