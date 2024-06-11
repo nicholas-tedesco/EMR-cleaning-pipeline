@@ -12,9 +12,9 @@
   library(tidyverse)
   library(openxlsx)
 
-  source('code/cleaning-functions.R')
+  source('code/cleaning/cleaning-functions.R')
 
-  data = read.csv('data/working-data/data-post-01.csv')
+  data = read.csv('data/working-data/data-post-02.csv')
   enc_data = load_multiple_csv('data/data-direct-exports/encounter-data', verbose = TRUE)
   
     

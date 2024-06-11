@@ -13,7 +13,7 @@
   library(openxlsx)
   library(data.table)
 
-  source('code/cleaning-functions.R')
+  source('code/cleaning/cleaning-functions.R')
   
   data = read.csv('data/working-data/data-post-03.csv')
   enc_data = load_multiple_csv('data/data-direct-exports/encounter-data', verbose = TRUE)
