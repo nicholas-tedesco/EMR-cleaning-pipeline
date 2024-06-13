@@ -214,6 +214,15 @@
         filter(datediff < 365.25) %>% 
         ungroup()
       
+      # for records before index date defined as "current", redefine as "former"
+      dates_substance_df <- dates_substance_df %>% 
+        mutate(
+          status.collapsed.test = case_when(
+            AdmitDate < date.index & status.collapsed == 'Current' ~ 'Former', 
+            TRUE ~ status.collapsed
+          )
+        )
+      
       # collapse all values for patient/index combo into one location  
       substance_per_index <- dates_substance_df %>% 
         # for each patient + index date combo...

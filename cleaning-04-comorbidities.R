@@ -36,12 +36,15 @@
     ))
     ald_icd = paste0('^', c('571.0', 571.1, 571.2, 571.3, 'K70'))
     
+    diabetes_icd = paste0('^', c(paste0('250.', 0:9, '0'), paste0('250.', 0:9, '2'), 'E11'))
+    
   ## read in comorbidities, then divide into dx groups 
     
     dx_path = 'data/data-direct-exports/diagnosis-data/combined-dx/'
     comorbidity_data = load_filtered_dx(
-      dx_path, c('hypertension', 'dyslipidemia', 'cad', 'cvd', 'cm', 'pad', 'aud', 'ald'), 
-      list(hypertension_icd, dyslipidemia_icd, cad_icd, cvd_icd, cm_icd, pad_icd, aud_icd, ald_icd), verbose = TRUE
+      dx_path, c('hypertension', 'dyslipidemia', 'cad', 'cvd', 'cm', 'pad', 'aud', 'ald', 'diabetes'), 
+      list(hypertension_icd, dyslipidemia_icd, cad_icd, cvd_icd, cm_icd, pad_icd, aud_icd, ald_icd, diabetes_icd), 
+      verbose = TRUE
     )
     
     hypertension = comorbidity_data %>% filter(hypertension_status == 1) %>% select(-contains('status'))
@@ -54,6 +57,8 @@
     pad = comorbidity_data %>% filter(pad_status == 1) %>% select(-contains('status'))
     aud = comorbidity_data %>% filter(aud_status == 1) %>% select(-contains('status'))
     ald = comorbidity_data %>% filter(ald_status == 1) %>% select(-contains('status'))
+    
+    diabetes = comorbidity_data %>% filter(diabetes_status == 1) %>% select(-contains('status'))
     
   
 # preprocessing ----------------------------------------------------------------
@@ -75,6 +80,8 @@
     aud <- join_enc_date(aud, enc_data)
     ald <- join_enc_date(ald, enc_data)
     
+    diabetes <- join_enc_date(diabetes, enc_data)
+    
     
 # define comorbidities ---------------------------------------------------------
     
@@ -88,6 +95,7 @@
     working_data <- add_dx_data('pad', pad, working_data)
     working_data <- add_dx_data('aud', aud, working_data)
     working_data <- add_dx_data('ald', ald, working_data)
+    working_data <- add_dx_data('diabetes', diabetes, working_data)
     
 
 # export -----------------------------------------------------------------------
