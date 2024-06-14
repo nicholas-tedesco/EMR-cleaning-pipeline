@@ -317,5 +317,33 @@
       return(output_df)
         
     } 
+    
+    
+# exclusion tracking -----------------------------------------------------------
+    
+  ## get distinct # of patients with measurement (lab, bmi) data within one year of index
+    
+    n_within_index = function(measure_df, index_df) {
+      
+      measure_join_index = measure_df %>% 
+        left_join(
+          index_df %>% select(PatientID, date.index) %>% distinct(), 
+          by = 'PatientID', 
+          relationship = 'many-to-many'
+        )
+      
+      measure_index_flag = measure_join_index %>%
+        mutate(
+          abs_date_diff = difftime(CollectionDate, date.index, units = 'days') %>% as.numeric() %>% abs(),
+          one_year_flag = ifelse(abs_date_diff < 365.25, 1, 0)
+        )
+      
+      patients_with_measure_within_index = measure_index_flag %>%
+        filter(one_year_flag == 1) %>%
+        distinct(PatientID)
+      
+      return(patients_with_measure_within_index %>% nrow())
+      
+    }
       
       
