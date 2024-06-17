@@ -323,7 +323,7 @@
     
   ## get distinct # of patients with measurement (lab, bmi) data within one year of index
     
-    n_within_index = function(measure_df, index_df) {
+    get_n_patients_within_index = function(measure_df, index_df) {
       
       measure_join_index = measure_df %>% 
         left_join(
@@ -343,6 +343,18 @@
         distinct(PatientID)
       
       return(patients_with_measure_within_index %>% nrow())
+      
+    }
+    
+  ## get # of distinct measurement records (useful when working with data joined to index dates) 
+    
+    get_n_records = function(measure_df) {
+      
+      distinct_measure = measure_df %>% 
+        select(PatientID, EncounterID, CollectionDateTime, VALUE) %>% 
+        distinct() 
+      
+      return(distinct_measure %>% nrow())
       
     }
       

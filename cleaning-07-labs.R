@@ -20,7 +20,7 @@
   hosp = load_multiple_csv('data/data-direct-exports/hospitalizations', verbose = TRUE)
   
   labs = list.files('data/data-direct-exports/labs')
-  labs = c('PROT', 'ALB')
+  labs = labs[labs != 'GLOB']
   for(lab in labs) {
     
     assign(lab, load_multiple_csv(glue('data/data-direct-exports/labs/{lab}')))
@@ -28,14 +28,36 @@
     
   }
   
-  # labs = labs[labs != 'PROT']
   
+# preprocessing ----------------------------------------------------------------
+  
+  ## fix dates for working data
+  
+    working_data <- data %>% mutate(date.index = as.Date(date.index, format = '%Y-%m-%d'))  
+  
+  ## fix dates for hospitalizations
+  
+    hosp = hosp %>% 
+      mutate(
+        AdmitDateTime = as.POSIXct(AdmitDate, format = '%m/%d/%Y %H:%M'), 
+        AdmitDate = as.Date(AdmitDate, format = '%m/%d/%Y %H:%M'),
+        DischargeDateTime = as.POSIXct(DischargeDate, format = '%m/%d/%Y %H:%M'),
+        DischargeDate = as.Date(DischargeDate, format = '%m/%d/%Y %H:%M'), 
+      )
+    
+  ## only keep hospitalizations with >= one day admission length 
+    
+    hosp_filtered = hosp %>% 
+      mutate(
+        admission_length = difftime(DischargeDateTime, AdmitDateTime, units = 'days'), 
+        remove_flag = ifelse(admission_length < 1, 1, 0)
+      ) %>% 
+      filter(remove_flag == 0)
+
 
 # step 0: date prep + baseline counts ------------------------------------------
   
-  ## fix date variables
-  
-    working_data <- data %>% mutate(date.index = as.Date(date.index, format = '%Y-%m-%d'))
+  ## for each lab, fix date variables 
     
     n_records  = c() 
     n_patients = c()
@@ -45,10 +67,11 @@
       temp = get(lab)
       temp = temp %>% 
         rename(CollectionDateTime = COLLECTION_DATE) %>% 
-        mutate(CollectionDate = as.Date(CollectionDateTime, format = "%m/%d/%Y %H:%M"))
+        mutate(CollectionDate = as.Date(CollectionDateTime, format = "%m/%d/%Y %H:%M")) %>% 
+        distinct() 
       
-      temp_n_records  = nrow(temp) %>% format(big.mark = ',') 
-      temp_n_patients = n_within_index(temp, working_data) %>% format(big.mark = ',')
+      temp_n_records  = get_n_records(temp) %>% format(big.mark = ',') 
+      temp_n_patients = get_n_patients_within_index(temp, working_data) %>% format(big.mark = ',')
       
       n_records  = c(n_records, temp_n_records)
       n_patients = c(n_patients, temp_n_patients)
@@ -58,7 +81,7 @@
       
     }
     
-  ## initialize objects to track exclusion counts 
+  ## initialize exclusion trackers 
     
     record_exclusions  = data.frame()
     patient_exclusions = data.frame()
@@ -75,32 +98,34 @@
   
 # step 1: convert lab to numeric -----------------------------------------------
     
-  n_records  = c()
-  n_patients = c()
-  
-  for(lab in labs) {
+  ## for each lab, clean up lab value column 
     
-    temp = get(lab) 
-    temp_filtered = temp %>% 
-      mutate(
-        VALUE = gsub('<|>|,|-', '', VALUE), 
-        value_num = ifelse(grepl('[A-Z]|[a-z]', VALUE) | VALUE == '' | VALUE == '2.00.14', NA, VALUE), 
-        value_num = as.numeric(value_num)
-      ) %>% 
-      filter(!is.na(value_num))
+    n_records  = c()
+    n_patients = c()
     
-    temp_n_records  = nrow(temp_filtered) %>% format(big.mark = ',') 
-    temp_n_patients = n_within_index(temp_filtered, working_data) %>% format(big.mark = ',')
-    
-    n_records  = c(n_records, temp_n_records)
-    n_patients = c(n_patients, temp_n_patients)
-    
-    message(glue('Dropped {nrow(temp) - nrow(temp_filtered)} rows with missing data for {lab}'))
-    
-    assign(lab, temp_filtered)
-    rm(temp)
-    
-  }
+    for(lab in labs) {
+      
+      temp = get(lab) 
+      temp_filtered = temp %>% 
+        mutate(
+          VALUE = gsub('<|>|,|-', '', VALUE), 
+          VALUE = ifelse(grepl('[A-Z]|[a-z]', VALUE) | VALUE == '' | VALUE == '2.00.14', NA, VALUE), 
+          VALUE = as.numeric(VALUE)
+        ) %>% 
+        filter(!is.na(VALUE))
+      
+      temp_n_records  = get_n_records(temp_filtered) %>% format(big.mark = ',') 
+      temp_n_patients = get_n_patients_within_index(temp_filtered, working_data) %>% format(big.mark = ',')
+      
+      n_records  = c(n_records, temp_n_records)
+      n_patients = c(n_patients, temp_n_patients)
+      
+      message(glue('Dropped {nrow(temp) - nrow(temp_filtered)} rows with missing data for {lab}'))
+      
+      assign(lab, temp_filtered)
+      rm(temp)
+      
+    }
   
   ## update exclusion counts
     
@@ -111,21 +136,24 @@
     patient_exclusions = rbind(patient_exclusions, n_patients) 
     
   
-# step 2: get single record for each enc/datetime ------------------------------
+# step 2: get single record per collection datetime ----------------------------
     
-  ## summarize into single record 
+  ## for each lab, take mean of values across ID/CollectionDate combo 
     
+    n_records  = c()
+    n_patients = c()
+      
     for (lab in labs) {
       
       temp = get(lab) 
       
       temp = temp %>% 
-        select(PatientID, EncounterID, CollectionDate, value_num, CollectionDateTime)
+        select(PatientID, EncounterID, CollectionDate, VALUE, CollectionDateTime)
       
       temp_counts = temp %>% 
         group_by(PatientID, EncounterID, CollectionDate, CollectionDateTime) %>% 
         summarize(count = n())
-
+  
       temp_no_dups = temp %>% 
         inner_join(
           temp_counts %>% filter(count < 2) %>% select(-count), 
@@ -142,27 +170,27 @@
         
       temp_dups_resolved = temp_dups %>% 
         group_by(PatientID, EncounterID, CollectionDate, CollectionDateTime) %>% 
-        summarize(value_num = mean(value_num))
+        summarize(VALUE = mean(VALUE))
       
       temp_resolved = rbind(temp_no_dups, temp_dups_resolved) 
       
-      temp_n_records  = nrow(temp_resolved) %>% format(big.mark = ',') 
-      temp_n_patients = n_within_index(temp_resolved, working_data) %>% format(big.mark = ',')
+      temp_n_records  = get_n_records(temp_resolved) %>% format(big.mark = ',') 
+      temp_n_patients = get_n_patients_within_index(temp_resolved, working_data) %>% format(big.mark = ',')
       
       n_records  = c(n_records, temp_n_records)
       n_patients = c(n_patients, temp_n_patients)
       
       message(glue('Dropped {nrow(temp) - nrow(temp_resolved)} rows with duplicate data for {lab}'))
       
-      assign(paste0(lab, '_test'), temp_resolved) 
+      assign(lab, temp_resolved) 
       rm(temp, temp_resolved, temp_dups_resolved, temp_no_dups, temp_counts)
       
     }
     
   ## update exclusion counts
     
-    n_records  = c('Step 2: Summarize Lab per DateTime', n_records)
-    n_patients = c('Step 2: Summarize Lab per DateTime', n_patients)
+    n_records  = c('Step 2: Single Lab per DateTime', n_records)
+    n_patients = c('Step 2: Single Lab per DateTime', n_patients)
     
     record_exclusions  = rbind(record_exclusions, n_records)
     patient_exclusions = rbind(patient_exclusions, n_patients) 
@@ -172,20 +200,38 @@
     
   ## join PROT and ALB data + calculate GLOB 
     
-    PROT = PROT %>% rename(PROT_CODE = RESULT_CODE, PROT_VALUE = VALUE)
+    PROT = PROT %>% rename(prot_VALUE = VALUE)
     
     PROT = PROT %>% 
-      left_join(ALB, by = c('PatientID', 'EncounterID', 'COLLECTION_DATE')) %>% 
+      left_join(ALB %>% rename(alb_VALUE = VALUE), by = c('PatientID', 'EncounterID', 'CollectionDate', 'CollectionDateTime')) %>% 
       mutate(
-        GLOB_VALUE = PROT_VALUE - VALUE
+        glob_VALUE = prot_VALUE - alb_VALUE
       )
+    
+    message(glue('Dropping another {nrow(PROT) - nrow(PROT %>% filter(!is.na(glob_VALUE)))} rows for GLOB'))
     
   ## overwrite existing GLOB df 
     
     GLOB = PROT %>% 
-      select(PatientID, EncounterID, COLLECTION_DATE, VALUE = GLOB_VALUE)
+      select(PatientID, EncounterID, CollectionDate, CollectionDateTime, VALUE = glob_VALUE)
     
-  
+  ## PROT is now GLOB - update trackers accordingly 
+    
+    record_exclusions  = record_exclusions %>% rename(GLOB = PROT)
+    patient_exclusions = patient_exclusions %>% rename(GLOB = PROT)
+    
+    new_labs = c() 
+    for(lab in labs) {
+      if(lab == 'PROT') {
+        new_labs = c(new_labs, 'GLOB')
+      } else {
+        new_labs = c(new_labs, lab)
+      }
+    }
+    
+    labs = new_labs 
+    
+    
 # step 3: apply feasibility criteria -------------------------------------------
     
   ## boundary definitions 
@@ -237,17 +283,17 @@
       
       if (!is.na(lower) & !is.na(upper)) {
         temp_filtered = temp %>% 
-          filter(value_num >= lower & value_num <= upper)
+          filter(VALUE >= lower & VALUE <= upper)
       } else if (!is.na(lower)) {
         temp_filtered = temp %>% 
-          filter(value_num >= lower)
+          filter(VALUE >= lower)
       } else if (!is.na(upper)) {
         temp_filtered = temp %>% 
-          filter(value_num <= upper)
+          filter(VALUE <= upper)
       }
       
-      temp_n_records  = nrow(temp_filtered) %>% format(big.mark = ',') 
-      temp_n_patients = nrow(temp_filtered %>% filter(one_year_flag == 1) %>% distinct(PatientID)) %>% format(big.mark = ',')
+      temp_n_records  = get_n_records(temp_filtered) %>% format(big.mark = ',') 
+      temp_n_patients = get_n_patients_within_index(temp_filtered, working_data) %>% format(big.mark = ',')
       
       n_records  = c(n_records, temp_n_records)
       n_patients = c(n_patients, temp_n_patients)
@@ -283,8 +329,8 @@
       temp_stats = temp %>% 
         group_by(PatientID) %>% 
         summarize(
-          median = median(value_num, na.rm = TRUE), 
-          sd     = sd(value_num, na.rm = TRUE), 
+          median = median(VALUE, na.rm = TRUE), 
+          sd     = sd(VALUE, na.rm = TRUE), 
           sd     = ifelse(is.na(sd), 0, sd)
         )
       
@@ -292,15 +338,13 @@
       temp_filtered = temp %>% 
         left_join(temp_stats, by = 'PatientID', relationship = 'many-to-one') %>% 
         mutate(
-          diff_value  = abs(median - value_num), 
+          diff_value  = abs(median - VALUE), 
           filter_flag = ifelse(diff_value > 3*sd, 1, 0)
         ) %>% 
         filter(filter_flag == 0)
       
-      print(nrow(temp_filtered))
-      
-      temp_n_records  = nrow(temp_filtered) %>% format(big.mark = ',') 
-      temp_n_patients = nrow(temp_filtered %>% filter(one_year_flag == 1) %>% distinct(PatientID)) %>% format(big.mark = ',')
+      temp_n_records  = get_n_records(temp_filtered) %>% format(big.mark = ',') 
+      temp_n_patients = get_n_patients_within_index(temp_filtered, working_data) %>% format(big.mark = ',')
       
       n_records  = c(n_records, temp_n_records)
       n_patients = c(n_patients, temp_n_patients)
@@ -321,7 +365,53 @@
     patient_exclusions = rbind(patient_exclusions, n_patients) 
     
     
-# step 5: filter using dates ---------------------------------------------------
+# step 5: filter based on hospitalization date ---------------------------------
+    
+  ## join hospitalization dates to labs, flag if within -1w/+3m
+
+    n_records  = c()
+    n_patients = c()
+
+    for(lab in labs) {
+
+      temp = get(lab)
+
+      exclude_records = temp %>%
+        left_join(hosp_filtered %>% select(-EncounterID), by = 'PatientID', relationship = 'many-to-many') %>%
+        mutate(
+          admit_diff = difftime(CollectionDate, AdmitDateTime, units = 'days'),
+          discharge_diff = difftime(CollectionDate, DischargeDateTime, units = 'days'),
+          hosp_flag = ifelse(admit_diff > -7 & discharge_diff < 90, 1, 0)
+        ) %>%
+        filter(hosp_flag == 1) %>%
+        select(PatientID, EncounterID, CollectionDate) %>%
+        distinct()
+
+      temp_filtered = temp %>%
+        anti_join(exclude_records, by = c('PatientID', 'EncounterID', 'CollectionDate'))
+
+      temp_n_records  = get_n_records(temp_filtered) %>% format(big.mark = ',')
+      temp_n_patients = get_n_patients_within_index(temp_filtered, working_data) %>% format(big.mark = ',')
+
+      n_records  = c(n_records, temp_n_records)
+      n_patients = c(n_patients, temp_n_patients)
+
+      message(glue('Dropped {nrow(temp) - nrow(temp_filtered)} rows within 1w pre - 3m post hospitalization {lab}'))
+
+      assign(lab, temp_filtered)
+
+    }
+
+  ## update exclusion counts
+
+    n_records  = c('Step 5: Exclude Records Within 1 Week Pre and 3 Months Post Hospitalization', n_records)
+    n_patients = c('Step 5: Exclude Records Within 1 Week Pre and 3 Months Post Hospitalization', n_patients)
+
+    record_exclusions  = rbind(record_exclusions, n_records)
+    patient_exclusions = rbind(patient_exclusions, n_patients)
+    
+    
+# step 6: filter based on index date -------------------------------------------
     
   ## join index dates to labs, filter to +/- one year from index
     
@@ -331,13 +421,27 @@
     for(lab in labs) {
       
       temp = get(lab)
+      
+      temp = temp %>% 
+        left_join(
+          working_data %>% select(PatientID, date.index) %>% distinct(), 
+          by = 'PatientID', 
+          relationship = 'many-to-many'
+        ) %>% 
+        mutate(
+          abs_date_diff = difftime(CollectionDate, date.index, units = 'days') %>% as.numeric() %>% abs(),
+          one_year_flag = ifelse(abs_date_diff < 365.25, 1, 0)
+        )
+      
       temp_filtered = temp %>% filter(one_year_flag == 1)
       
-      temp_n_records  = nrow(temp_filtered) %>% format(big.mark = ',') 
-      temp_n_patients = nrow(temp_filtered %>% filter(one_year_flag == 1) %>% distinct(PatientID)) %>% format(big.mark = ',')
+      temp_n_records  = get_n_records(temp_filtered) %>% format(big.mark = ',') 
+      temp_n_patients = get_n_patients_within_index(temp_filtered %>% select(-date.index), working_data) %>% format(big.mark = ',')
       
       n_records  = c(n_records, temp_n_records)
       n_patients = c(n_patients, temp_n_patients)
+      
+      message(glue('Dropped {nrow(temp) - nrow(temp_filtered)} rows outside index date range for {lab}'))
       
       assign(lab, temp_filtered)
       rm(temp, temp_filtered)
@@ -346,14 +450,14 @@
     
   ## update exclusion counts
     
-    n_records  = c('Step 5: Filter to +/- 1 Year Index', n_records)
-    n_patients = c('Step 5: Filter to +/- 1 Year Index', n_patients)
+    n_records  = c('Step 6: Filter to +/- 1 Year Index', n_records)
+    n_patients = c('Step 6: Filter to +/- 1 Year Index', n_patients)
     
     record_exclusions  = rbind(record_exclusions, n_records)
     patient_exclusions = rbind(patient_exclusions, n_patients) 
     
-    
-# step 6: final transformation -------------------------------------------------
+
+# step 7: final transformation -------------------------------------------------
     
   ## calculate median of values +/- one year from index 
     
@@ -364,7 +468,7 @@
       temp = get(lab) 
       temp_medians = temp %>% 
         group_by(PatientID, date.index) %>% 
-        summarize({{lab_name}} := median(value_num))
+        summarize({{lab_name}} := median(VALUE))
       
       message(glue('Finished calculation for {lab}'))
       
@@ -396,6 +500,27 @@
     
 # export -----------------------------------------------------------------------
     
-  write.csv(working_data, 'data/working-data/data-post-07.csv', row.names = FALSE)
+  ## write new working data 
+    
+    # write.csv(working_data, 'data/working-data/data-post-07.csv', row.names = FALSE)
+  
+  ## bind working data to existing final data 
+    
+    old_data = read.csv('data/final-data/steatosis-cohort-0611.csv')
+    updated_data = old_data %>% select(-contains('MEDIAN')) %>% 
+      left_join(
+        working_data %>% select(PatientID, date.index, type, contains('MEDIAN')) %>% 
+          mutate(date.index = as.character(date.index)), 
+        by = c('PatientID', 'date.index', 'type'), 
+        relationship = 'one-to-one'
+      )
+    
+    write.csv(updated_data, 'data/final-data/steatosis-cohort-0616.csv', row.names = FALSE)
+    
+  ## exclusion trackers 
+    
+    write.csv(record_exclusions, 'output/labs-record-exclusion-tracker.csv', row.names = FALSE) 
+    write.csv(patient_exclusions, 'output/labs-patient-exclusion-tracker.csv', row.names = FALSE)
+    
   
   
