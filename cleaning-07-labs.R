@@ -312,9 +312,95 @@
     
     record_exclusions  = rbind(record_exclusions, n_records)
     patient_exclusions = rbind(patient_exclusions, n_patients) 
+
+    
+# step 4: filter based on hospitalization date ---------------------------------
+    
+  ## join hospitalization dates to labs, flag if within +/- 1 week 
+
+    n_records  = c()
+    n_patients = c()
+
+    for(lab in labs) {
+
+      temp = get(lab)
+
+      exclude_records = temp %>%
+        left_join(hosp_filtered %>% select(-EncounterID), by = 'PatientID', relationship = 'many-to-many') %>%
+        mutate(
+          admit_diff = difftime(CollectionDate, AdmitDateTime, units = 'days'),
+          discharge_diff = difftime(CollectionDate, DischargeDateTime, units = 'days'),
+          hosp_flag = ifelse(admit_diff > -7 & discharge_diff < 7, 1, 0)
+        ) %>%
+        filter(hosp_flag == 1) %>%
+        select(PatientID, EncounterID, CollectionDate) %>%
+        distinct()
+
+      temp_filtered = temp %>%
+        anti_join(exclude_records, by = c('PatientID', 'EncounterID', 'CollectionDate'))
+
+      temp_n_records  = get_n_records(temp_filtered) %>% format(big.mark = ',')
+      temp_n_patients = get_n_patients_within_index(temp_filtered, working_data) %>% format(big.mark = ',')
+
+      n_records  = c(n_records, temp_n_records)
+      n_patients = c(n_patients, temp_n_patients)
+
+      message(glue('Dropped {nrow(temp) - nrow(temp_filtered)} rows within 1w pre - 1w post hospitalization {lab}'))
+
+      assign(lab, temp_filtered)
+
+    }
+
+  ## update exclusion counts
+
+    n_records  = c('Step 4: Exclude Records Within 1 Week Pre through 1 Week Post Hospitalization', n_records)
+    n_patients = c('Step 4: Exclude Records Within 1 Week Pre through 1 Week Post Hospitalization', n_patients)
+
+    record_exclusions  = rbind(record_exclusions, n_records)
+    patient_exclusions = rbind(patient_exclusions, n_patients)
     
     
-# step 4: remove outliers ------------------------------------------------------
+# step 5: remove outliers (relative to overall lab) ----------------------------
+    
+  ## for each lab, remove values outside the 0.25 and 99.75 percentile bounds
+    
+    n_records  = c() 
+    n_patients = c()
+    
+    for (lab in labs) {
+      
+      temp = get(lab) 
+      
+      lower_bound = quantile(temp$VALUE, 0.0025)
+      upper_bound = quantile(temp$VALUE, 0.9975)
+      
+      temp_filtered = temp %>% 
+        filter(
+          VALUE >= lower_bound & VALUE <= upper_bound
+        )
+      
+      temp_n_records  = get_n_records(temp_filtered) %>% format(big.mark = ',')
+      temp_n_patients = get_n_patients_within_index(temp_filtered, working_data) %>% format(big.mark = ',')
+      
+      n_records  = c(n_records, temp_n_records)
+      n_patients = c(n_patients, temp_n_patients)
+      
+      message(glue('Dropped {nrow(temp) - nrow(temp_filtered)} rows outside of {lower_bound} - {upper_bound} for {lab}'))
+      
+      assign(lab, temp_filtered)
+      
+    }
+    
+  ## update exclusion counts
+    
+    n_records  = c('Step 5: Exclude Records Outside 0.25 and 99.75 percentile bounds', n_records)
+    n_patients = c('Step 5: Exclude Records Outside 0.25 and 99.75 percentile bounds', n_patients)
+    
+    record_exclusions  = rbind(record_exclusions, n_records)
+    patient_exclusions = rbind(patient_exclusions, n_patients)
+    
+    
+# step 6: remove outliers (relative to patient) --------------------------------
     
   ## remove values >3SD from patient's median 
     
@@ -356,62 +442,17 @@
       
     }
     
-  ## update exclusion counts
+    ## update exclusion counts
     
-    n_records  = c('Step 4: Filter to <= 3SD', n_records)
-    n_patients = c('Step 4: Filter to <= 3SD', n_patients)
+    n_records  = c('Step 6: Filter to <= 3SD', n_records)
+    n_patients = c('Step 6: Filter to <= 3SD', n_patients)
     
     record_exclusions  = rbind(record_exclusions, n_records)
     patient_exclusions = rbind(patient_exclusions, n_patients) 
     
     
-# step 5: filter based on hospitalization date ---------------------------------
     
-  ## join hospitalization dates to labs, flag if within -1w/+3m
-
-    n_records  = c()
-    n_patients = c()
-
-    for(lab in labs) {
-
-      temp = get(lab)
-
-      exclude_records = temp %>%
-        left_join(hosp_filtered %>% select(-EncounterID), by = 'PatientID', relationship = 'many-to-many') %>%
-        mutate(
-          admit_diff = difftime(CollectionDate, AdmitDateTime, units = 'days'),
-          discharge_diff = difftime(CollectionDate, DischargeDateTime, units = 'days'),
-          hosp_flag = ifelse(admit_diff > -7 & discharge_diff < 90, 1, 0)
-        ) %>%
-        filter(hosp_flag == 1) %>%
-        select(PatientID, EncounterID, CollectionDate) %>%
-        distinct()
-
-      temp_filtered = temp %>%
-        anti_join(exclude_records, by = c('PatientID', 'EncounterID', 'CollectionDate'))
-
-      temp_n_records  = get_n_records(temp_filtered) %>% format(big.mark = ',')
-      temp_n_patients = get_n_patients_within_index(temp_filtered, working_data) %>% format(big.mark = ',')
-
-      n_records  = c(n_records, temp_n_records)
-      n_patients = c(n_patients, temp_n_patients)
-
-      message(glue('Dropped {nrow(temp) - nrow(temp_filtered)} rows within 1w pre - 3m post hospitalization {lab}'))
-
-      assign(lab, temp_filtered)
-
-    }
-
-  ## update exclusion counts
-
-    n_records  = c('Step 5: Exclude Records Within 1 Week Pre and 3 Months Post Hospitalization', n_records)
-    n_patients = c('Step 5: Exclude Records Within 1 Week Pre and 3 Months Post Hospitalization', n_patients)
-
-    record_exclusions  = rbind(record_exclusions, n_records)
-    patient_exclusions = rbind(patient_exclusions, n_patients)
-    
-    
-# step 6: filter based on index date -------------------------------------------
+# step 7: filter based on index date -------------------------------------------
     
   ## join index dates to labs, filter to +/- one year from index
     
@@ -423,7 +464,7 @@
       temp = get(lab)
       
       temp = temp %>% 
-        left_join(
+        left_join(  
           working_data %>% select(PatientID, date.index) %>% distinct(), 
           by = 'PatientID', 
           relationship = 'many-to-many'
@@ -450,14 +491,14 @@
     
   ## update exclusion counts
     
-    n_records  = c('Step 6: Filter to +/- 1 Year Index', n_records)
-    n_patients = c('Step 6: Filter to +/- 1 Year Index', n_patients)
+    n_records  = c('Step 7: Filter to +/- 1 Year Index', n_records)
+    n_patients = c('Step 7: Filter to +/- 1 Year Index', n_patients)
     
     record_exclusions  = rbind(record_exclusions, n_records)
     patient_exclusions = rbind(patient_exclusions, n_patients) 
     
 
-# step 7: final transformation -------------------------------------------------
+# step 8: final transformation -------------------------------------------------
     
   ## calculate median of values +/- one year from index 
     
