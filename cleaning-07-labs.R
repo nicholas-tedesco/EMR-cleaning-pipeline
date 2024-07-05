@@ -11,6 +11,7 @@
   library(tidyverse)
   library(glue)
   library(hash)
+  library(data.table)
 
   options(dplyr.summarise.inform = FALSE)
 
@@ -20,7 +21,8 @@
   hosp = load_multiple_csv('data/data-direct-exports/hospitalizations', verbose = TRUE)
   
   labs = list.files('data/data-direct-exports/labs')
-  labs = labs[labs != 'GLOB']
+  labs = labs[labs != 'GLOB']   # replacing raw GLOB with PROT - ALB 
+  
   for(lab in labs) {
     
     assign(lab, load_multiple_csv(glue('data/data-direct-exports/labs/{lab}')))
@@ -196,6 +198,94 @@
     patient_exclusions = rbind(patient_exclusions, n_patients) 
     
     
+# step 3: get single value per 48hr group --------------------------------------
+    
+  ## for each patient, collapse lab values into 48hr groups. example below 
+    
+    # patient A | lab = 20 | collection_date = 04/02/2023
+    # patient A | lab = 26 | collection_date = 04/03/2023
+    # patient A | lab = 30 | collection_date = 04/05/2023
+    
+    # -> collapse -> 
+    
+    # patient A | lab = 23 | collection_date = 04/02/2023
+    # patient A | lab = 30 | collection_date = 04/05/2023     # note how this record is not collapsed, despite being within 48hr of 04/03
+    
+    n_records  = c()
+    n_patients = c()
+    
+    start_time = Sys.time() 
+    
+    for (lab in labs) {
+      
+      temp = get(lab)
+      
+      setDT(temp)
+      setorder(temp, PatientID, CollectionDate)
+      
+      temp_collapsed <- temp[, {
+        
+        collapsed_records = list()
+        i = 1
+        
+        ## iterate over lab dates for each patient
+        while (i <= .N) {
+          
+          start_date = CollectionDate[i]
+          end_date   = start_date + 2      # 2 day timeframe for collapse 
+          values     = list(VALUE[i])
+          
+          start_date_time = CollectionDateTime[i]
+          
+          ## save all lab records within 2 days to list
+          j = i + 1
+          while (j <= .N && CollectionDate[j] <= end_date) {
+            values = append(values, VALUE[j])
+            j = j + 1   
+          }
+          
+          ## take mean of list
+          avg_value <- mean(unlist(values))
+          
+          ## save as new collapsed record under collection date = start date 
+          collapsed_records[[length(collapsed_records) + 1]] <- list(EncounterID[i], avg_value, start_date, start_date_time)
+          
+          ## i is now the j we left off on; skips over 
+          i <- j
+        }
+      
+        rbindlist(collapsed_records, use.names = FALSE)
+        
+      }, by = PatientID]
+      
+      setnames(temp_collapsed, c('PatientID', 'EncounterID', 'VALUE', 'CollectionDate', 'CollectionDateTime'))
+      
+      temp_n_records  = get_n_records(temp_collapsed) %>% format(big.mark = ',') 
+      temp_n_patients = get_n_patients_within_index(temp_collapsed, working_data) %>% format(big.mark = ',')
+      
+      n_records  = c(n_records, temp_n_records)
+      n_patients = c(n_patients, temp_n_patients)
+      
+      message(glue('Dropped {nrow(temp) - nrow(temp_collapsed)} rows during collapse for {lab}'))
+      
+      assign(lab, temp_collapsed) 
+      rm(temp, temp_collapsed)
+      
+    }
+    
+    end_time = Sys.time() 
+    
+  ## update exclusion counts
+    
+    n_records  = c('Step 3: Single Lab per 2-Day Window', n_records)
+    n_patients = c('Step 3: Single Lab per 2-Day Window', n_patients)
+    
+    record_exclusions  = rbind(record_exclusions, n_records)
+    patient_exclusions = rbind(patient_exclusions, n_patients) 
+    
+    step3_time = end_time - start_time
+    
+    
 # BREAK: derive GLOB from PROT - ALB -------------------------------------------
     
   ## join PROT and ALB data + calculate GLOB 
@@ -210,7 +300,7 @@
     
     message(glue('Dropping another {nrow(PROT) - nrow(PROT %>% filter(!is.na(glob_VALUE)))} rows for GLOB'))
     
-  ## overwrite existing GLOB df 
+  ## create new lab df 
     
     GLOB = PROT %>% 
       select(PatientID, EncounterID, CollectionDate, CollectionDateTime, VALUE = glob_VALUE)
@@ -232,7 +322,7 @@
     labs = new_labs 
     
     
-# step 3: apply feasibility criteria -------------------------------------------
+# step 4: apply feasibility criteria -------------------------------------------
     
   ## boundary definitions 
   
@@ -307,16 +397,16 @@
   
   ## update exclusion counts
     
-    n_records  = c('Step 3: Apply Feasibility Criteria', n_records)
-    n_patients = c('Step 3: Apply Feasibility Criteria', n_patients)
+    n_records  = c('Step 4: Apply Feasibility Criteria', n_records)
+    n_patients = c('Step 4: Apply Feasibility Criteria', n_patients)
     
     record_exclusions  = rbind(record_exclusions, n_records)
     patient_exclusions = rbind(patient_exclusions, n_patients) 
 
     
-# step 4: filter based on hospitalization date ---------------------------------
+# step 5: filter based on hospitalization date ---------------------------------
     
-  ## join hospitalization dates to labs, flag if within +/- 1 week 
+  ## exclude labs within 1 week pre/post hosp 
 
     n_records  = c()
     n_patients = c()
@@ -353,16 +443,16 @@
 
   ## update exclusion counts
 
-    n_records  = c('Step 4: Exclude Records Within 1 Week Pre through 1 Week Post Hospitalization', n_records)
-    n_patients = c('Step 4: Exclude Records Within 1 Week Pre through 1 Week Post Hospitalization', n_patients)
+    n_records  = c('Step 5: Exclude Records Within 1 Week Pre through 1 Week Post Hospitalization', n_records)
+    n_patients = c('Step 5: Exclude Records Within 1 Week Pre through 1 Week Post Hospitalization', n_patients)
 
     record_exclusions  = rbind(record_exclusions, n_records)
     patient_exclusions = rbind(patient_exclusions, n_patients)
     
     
-# step 5: remove outliers (relative to overall lab) ----------------------------
+# step 6: remove outliers (relative to overall lab) ----------------------------
     
-  ## for each lab, remove values outside the 0.25 and 99.75 percentile bounds
+  ## for each lab, remove values outside the 1 and 99 percentile bounds
     
     n_records  = c() 
     n_patients = c()
@@ -371,8 +461,8 @@
       
       temp = get(lab) 
       
-      lower_bound = quantile(temp$VALUE, 0.0025)
-      upper_bound = quantile(temp$VALUE, 0.9975)
+      lower_bound = quantile(temp$VALUE, 0.01)
+      upper_bound = quantile(temp$VALUE, 0.99)
       
       temp_filtered = temp %>% 
         filter(
@@ -391,16 +481,16 @@
       
     }
     
-  ## update exclusion counts
+    ## update exclusion counts
     
-    n_records  = c('Step 5: Exclude Records Outside 0.25 and 99.75 percentile bounds', n_records)
-    n_patients = c('Step 5: Exclude Records Outside 0.25 and 99.75 percentile bounds', n_patients)
+    n_records  = c('Step 6: Exclude Records Outside 1 and 99 percentile bounds', n_records)
+    n_patients = c('Step 6: Exclude Records Outside 1 and 99 percentile bounds', n_patients)
     
     record_exclusions  = rbind(record_exclusions, n_records)
     patient_exclusions = rbind(patient_exclusions, n_patients)
     
     
-# step 6: remove outliers (relative to patient) --------------------------------
+# step 7: remove outliers (relative to patient) --------------------------------
     
   ## remove values >3SD from patient's median 
     
@@ -444,15 +534,14 @@
     
     ## update exclusion counts
     
-    n_records  = c('Step 6: Filter to <= 3SD', n_records)
-    n_patients = c('Step 6: Filter to <= 3SD', n_patients)
+    n_records  = c('Step 7: Filter to <= 3SD', n_records)
+    n_patients = c('Step 7: Filter to <= 3SD', n_patients)
     
     record_exclusions  = rbind(record_exclusions, n_records)
     patient_exclusions = rbind(patient_exclusions, n_patients) 
     
     
-    
-# step 7: filter based on index date -------------------------------------------
+# step 8: filter based on index date -------------------------------------------
     
   ## join index dates to labs, filter to +/- one year from index
     
@@ -491,8 +580,8 @@
     
   ## update exclusion counts
     
-    n_records  = c('Step 7: Filter to +/- 1 Year Index', n_records)
-    n_patients = c('Step 7: Filter to +/- 1 Year Index', n_patients)
+    n_records  = c('Step 8: Filter to +/- 1 Year Index', n_records)
+    n_patients = c('Step 8: Filter to +/- 1 Year Index', n_patients)
     
     record_exclusions  = rbind(record_exclusions, n_records)
     patient_exclusions = rbind(patient_exclusions, n_patients) 
@@ -556,12 +645,11 @@
         relationship = 'one-to-one'
       )
     
-    write.csv(updated_data, 'data/final-data/steatosis-cohort-0616.csv', row.names = FALSE)
+    write.csv(updated_data, 'data/final-data/steatosis-labs-strategy-2.csv', row.names = FALSE)
     
   ## exclusion trackers 
     
-    write.csv(record_exclusions, 'output/labs-record-exclusion-tracker.csv', row.names = FALSE) 
-    write.csv(patient_exclusions, 'output/labs-patient-exclusion-tracker.csv', row.names = FALSE)
+    write.csv(record_exclusions, 'output/labs-record-exclusion-tracker-strategy-2.csv', row.names = FALSE) 
+    write.csv(patient_exclusions, 'output/labs-patient-exclusion-tracker-strategy-2.csv', row.names = FALSE)
     
-  
   
