@@ -39,17 +39,22 @@
       'K71'                                                                           # drug induced liver injury
     ))
     
+    cf_icd = paste0('^', c(
+      '277.0', 'E84\\.'
+    ))
+    
   ## read in outcomes, then divide into dx groups 
   
     dx_path = 'data/data-direct-exports/diagnosis-data/combined-dx/'
     exclusion_data = load_filtered_dx(
-      dx_path, c('cancer', 'liver_tx', 'cld'), 
-      list(cancer_icd, liver_tx_icd, cld_icd), verbose = TRUE
+      dx_path, c('cancer', 'liver_tx', 'cld', 'cf'), 
+      list(cancer_icd, liver_tx_icd, cld_icd, cf_icd), verbose = TRUE
     )
     
     cancer    = exclusion_data %>% filter(cancer_status == 1) %>% select(-contains('status'))
     liver_tx  = exclusion_data %>% filter(liver_tx_status == 1) %>% select(-contains('status'))
     cld       = exclusion_data %>% filter(cld_status == 1) %>% select(-contains('status'))
+    cf        = exclusion_data %>% filter(cf_status == 1) %>% select(-contains('status'))
   
   
 # preprocessing ----------------------------------------------------------------
@@ -153,8 +158,20 @@
       filter(!(PatientID %in% cld_patients))
     
     
+# exclusion 4: no cystic fibrosis ----------------------------------------------
+    
+  ## determine which patients have cystic fibrosis diagnoses 
+    
+    cf_patients <- unique(cf$PatientID)
+    
+  ## remove these patients from working data 
+    
+    working_data <- working_data %>% 
+      filter(!(PatientID %in% cf_patients))
+    
+    
 # export -----------------------------------------------------------------------
     
-  write.csv(temp, 'data/final-data/steatosis-cohort-0611.csv', row.names = FALSE)
+  write.csv(working_data, 'data/clean/final-cohort/steatosis-cohort-0711.csv', row.names = FALSE)
     
     
