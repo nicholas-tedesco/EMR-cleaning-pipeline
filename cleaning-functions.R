@@ -319,6 +319,99 @@
     } 
     
     
+# labs -------------------------------------------------------------------------
+    
+  ## remove lab records if multiple within 48 hours 
+    
+    collapse_df = function(temp) {
+      
+      setDT(temp)
+      setorder(temp, PatientID, CollectionDate)
+      
+      temp_collapsed <- temp[, {
+        
+        collapsed_records = list()
+        i = 1
+        
+        ## iterate over lab dates for each patient
+        while (i <= .N) {
+          
+          start_date = CollectionDate[i]
+          end_date   = start_date + 2      # 2 day timeframe for collapse 
+          values     = list(VALUE[i])
+          
+          start_date_time = CollectionDateTime[i]
+          
+          ## save all lab records within 2 days to list
+          j = i + 1
+          while (j <= .N && CollectionDate[j] <= end_date) {
+            values = append(values, VALUE[j])
+            j = j + 1   
+          }
+          
+          # if more than 1 values within 48 hour periods of one another, exclude all
+          avg_value = -1
+          ## take mean of list
+          if (length(unlist(values)) == 1) {
+            avg_value = unlist(values)
+          }
+          
+          ## save as new collapsed record under collection date = start date 
+          collapsed_records[[length(collapsed_records) + 1]] <- list(EncounterID[i], avg_value, start_date, start_date_time)
+          
+          ## i is now the j we left off on; skips over 
+          i <- j
+        }
+        
+        rbindlist(collapsed_records, use.names = FALSE)
+        
+      }, by = PatientID]
+      
+      setnames(temp_collapsed, c('PatientID', 'EncounterID', 'VALUE', 'CollectionDate', 'CollectionDateTime'))
+      
+      temp_collapsed = temp_collapsed %>% filter(VALUE != -1)
+      
+      return(temp_collapsed)
+      
+    }
+    
+  ## if lab over certain value, validate that patient consistently has high lab. if not, remove
+    
+    apply_consistency_filter = function(temp, elevated_value) {
+      
+      ## split data by elevated status 
+      temp_normal   = temp %>% filter(VALUE < elevated_value) 
+      temp_elevated = temp %>% filter(VALUE >= elevated_value)
+      
+      ## for elevated labs, check following conditions: 
+      ## - at least five other labs with elevated status 
+      ## - difference between start and max date is at least one year 
+      include_patients = temp_elevated %>% 
+        group_by(PatientID) %>% 
+        summarize(
+          min_date = min(CollectionDate), 
+          max_date = max(CollectionDate), 
+          n_values = n() 
+        ) %>% 
+        filter(
+          difftime(max_date, min_date, units = 'days') > 365 &
+            n_values > 5
+        )
+      
+      temp_elevated_final = temp_elevated %>% 
+        inner_join(
+          include_patients %>% select(PatientID), 
+          by = 'PatientID'
+        )
+      
+      # ## merge back to normal labs 
+      temp_final = rbind(temp_normal, temp_elevated_final)
+      
+      return(temp_final)
+      
+    }
+    
+    
 # exclusion tracking -----------------------------------------------------------
     
   ## get distinct # of patients with measurement (lab, bmi) data within one year of index
