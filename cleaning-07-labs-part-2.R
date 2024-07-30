@@ -22,7 +22,7 @@
   labs = list.files('data/clean/labs')
   for(lab in labs) {
     
-    assign(lab, read.csv(glue('data/clean/labs/{lab}/cleaned-{lab}.csv')))
+    assign(paste0('old_', lab), read.csv(glue('data/clean/labs/{lab}/cleaned-{lab}.csv')))
     message(glue('Finished loading {lab}: {nrow(get(lab))} rows'))
     
   }

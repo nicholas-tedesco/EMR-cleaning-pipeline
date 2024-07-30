@@ -323,7 +323,7 @@
     
   ## remove lab records if multiple within 48 hours 
     
-    collapse_df = function(temp) {
+    remove48 = function(temp) {
       
       setDT(temp)
       setorder(temp, PatientID, CollectionDate)
@@ -346,6 +346,9 @@
           j = i + 1
           while (j <= .N && CollectionDate[j] <= end_date) {
             values = append(values, VALUE[j])
+            ## update end date to be relative to next lab in series 
+            end_date = CollectionDate[j] + 2
+            
             j = j + 1   
           }
           

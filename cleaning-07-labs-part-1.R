@@ -207,7 +207,7 @@
     patient_exclusions = rbind(patient_exclusions, n_patients) 
     
     
-# step 4: remove inpatient labs ------------------------------------------------
+# step 4: remove proximal (within 48hr) labs -----------------------------------
     
     # patient A | lab = 20 | collection_date = 04/02/2023
     # patient A | lab = 26 | collection_date = 04/03/2023
