@@ -22,7 +22,7 @@
   labs = list.files('data/clean/labs')
   for(lab in labs) {
     
-    assign(paste0('old_', lab), read.csv(glue('data/clean/labs/{lab}/cleaned-{lab}.csv')))
+    assign(lab, read.csv(glue('data/clean/labs/{lab}/cleaned-{lab}.csv')))
     message(glue('Finished loading {lab}: {nrow(get(lab))} rows'))
     
   }
@@ -131,8 +131,8 @@
     record_exclusions  = data.frame()
     patient_exclusions = data.frame()
   
-    n_records  = c('Step 4: Apply Feasibility Criteria', n_records)
-    n_patients = c('Step 4: Apply Feasibility Criteria', n_patients)
+    n_records  = c('Step 5: Apply Feasibility Criteria', n_records)
+    n_patients = c('Step 5: Apply Feasibility Criteria', n_patients)
     
     record_exclusions  = rbind(record_exclusions, n_records)
     patient_exclusions = rbind(patient_exclusions, n_patients) 
@@ -177,8 +177,8 @@
   
   ## update exclusion counts
   
-    n_records  = c('Step 5: Exclude Records Within 1 Week Pre through 1 Week Post Hospitalization', n_records)
-    n_patients = c('Step 5: Exclude Records Within 1 Week Pre through 1 Week Post Hospitalization', n_patients)
+    n_records  = c('Step 6: Exclude Records Within 1 Week Pre through 1 Week Post Hospitalization', n_records)
+    n_patients = c('Step 6: Exclude Records Within 1 Week Pre through 1 Week Post Hospitalization', n_patients)
     
     record_exclusions  = rbind(record_exclusions, n_records)
     patient_exclusions = rbind(patient_exclusions, n_patients)
@@ -228,8 +228,8 @@
   
   ## update exclusion counts
   
-    n_records  = c('Step 6: Filter to <= 3SD', n_records)
-    n_patients = c('Step 6: Filter to <= 3SD', n_patients)
+    n_records  = c('Step 7: Filter to <= 3SD', n_records)
+    n_patients = c('Step 7: Filter to <= 3SD', n_patients)
     
     record_exclusions  = rbind(record_exclusions, n_records)
     patient_exclusions = rbind(patient_exclusions, n_patients) 
@@ -372,7 +372,7 @@
         relationship = 'one-to-one'
       )
     
-    write.csv(updated_data, 'data/clean/final-cohort/steatosis-labs-with-collapse.csv', row.names = FALSE)
+    write.csv(updated_data, 'data/clean/final-cohort/steatosis-cohort-0731.csv', row.names = FALSE)
     
   ## exclusion trackers 
   
