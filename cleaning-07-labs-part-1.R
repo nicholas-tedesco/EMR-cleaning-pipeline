@@ -30,6 +30,10 @@
       message(glue('Finished loading {lab}: {nrow(get(lab))} rows'))
       
     }
+    
+  ## load encounters 
+    
+    enc_data = load_multiple_csv('data/data-direct-exports/encounter-data', verbose = TRUE)
   
   
 # preprocessing ----------------------------------------------------------------
@@ -88,9 +92,54 @@
     
 # step 1: filter to outpatient encounters --------------------------------------
     
-  ## (this filter is also used as an inclusion criteria on DataDirect)
+  ## what are outpatient encounters? 
     
-  ## 
+    unique_codes = unique(enc_data$PatientClassCode)
+    print(unique_codes)
+    
+  ## initialize exclusion trackers 
+    
+    n_records  = c() 
+    n_patients = c()
+    
+  ## for each lab, filter to outpatient records only 
+    
+    for(lab in labs) {
+      
+      temp = get(lab) 
+      
+      # filter to PatientClassCode == 'Outpatient'
+      temp_filtered = temp %>% 
+        left_join(
+          enc_data %>% select(PatientID, EncounterID, PatientClassCode), 
+          by = c('PatientID', 'EncounterID'), 
+          relationship = 'many-to-one'
+        ) %>% 
+        filter(PatientClassCode == 'Outpatient') %>% 
+        select(-PatientClassCode)
+      
+      # exclusion tracking 
+      temp_n_records  = get_n_records(temp_filtered) %>% format(big.mark = ',') 
+      temp_n_patients = get_n_patients_within_index(temp_filtered, working_data) %>% format(big.mark = ',')
+      
+      n_records  = c(n_records, temp_n_records)
+      n_patients = c(n_patients, temp_n_patients)
+      
+      # update local environment with new lab data
+      message(glue('Dropped {nrow(temp) - nrow(temp_filtered)} non-outpatient rows for {lab}'))
+      
+      assign(lab, temp_filtered)
+      rm(temp)
+      
+    }
+    
+    ## update exclusion counts
+      
+      n_records  = c('Step 1: Filter to Outpatient Only', n_records)
+      n_patients = c('Step 1: Filter to Outpatient Only', n_patients)
+      
+      record_exclusions  = rbind(record_exclusions, n_records)
+      patient_exclusions = rbind(patient_exclusions, n_patients) 
     
   
 # step 2: convert lab to numeric -----------------------------------------------
@@ -132,8 +181,8 @@
   
   ## update exclusion counts
     
-    n_records  = c('Step 1: Convert to Numeric', n_records)
-    n_patients = c('Step 1: Convert to Numeric', n_patients)
+    n_records  = c('Step 2: Convert to Numeric', n_records)
+    n_patients = c('Step 2: Convert to Numeric', n_patients)
     
     record_exclusions  = rbind(record_exclusions, n_records)
     patient_exclusions = rbind(patient_exclusions, n_patients) 
@@ -200,8 +249,8 @@
     
   ## update exclusion counts
     
-    n_records  = c('Step 2: Single Lab per DateTime', n_records)
-    n_patients = c('Step 2: Single Lab per DateTime', n_patients)
+    n_records  = c('Step 3: Single Lab per DateTime', n_records)
+    n_patients = c('Step 3: Single Lab per DateTime', n_patients)
     
     record_exclusions  = rbind(record_exclusions, n_records)
     patient_exclusions = rbind(patient_exclusions, n_patients) 
@@ -248,8 +297,8 @@
     
   ## update exclusion counts
     
-    n_records  = c('Step 3: Single Lab per 2-Day Window', n_records)
-    n_patients = c('Step 3: Single Lab per 2-Day Window', n_patients)
+    n_records  = c('Step 4: Single Lab per 2-Day Window', n_records)
+    n_patients = c('Step 4: Single Lab per 2-Day Window', n_patients)
     
     record_exclusions  = rbind(record_exclusions, n_records)
     patient_exclusions = rbind(patient_exclusions, n_patients) 
@@ -331,6 +380,6 @@
     ) %>% 
       mutate_at('CollectionDate', function(x) as.Date(x, format = "%Y-%m-%d"))
     
-    test_collapsed = collapse_df(test_df)
+    test_collapsed = remove48(test_df)
     
     
