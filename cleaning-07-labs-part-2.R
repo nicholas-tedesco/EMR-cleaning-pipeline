@@ -19,13 +19,16 @@
   data = read.csv('data/working-data/data-post-06.csv')
   hosp = load_multiple_csv('data/data-direct-exports/hospitalizations', verbose = TRUE)
   
-  labs = list.files('data/clean/labs')
-  for(lab in labs) {
+  ## cleaned labs (post lab script 1)
+  
+    labs = list.files('data/clean/labs')
+    for(lab in labs) {
+      
+      assign(lab, read.csv(glue('data/clean/labs/{lab}/cleaned-{lab}.csv')))
+      message(glue('Finished loading {lab}: {nrow(get(lab))} rows'))
+      
+    }
     
-    assign(lab, read.csv(glue('data/clean/labs/{lab}/cleaned-{lab}.csv')))
-    message(glue('Finished loading {lab}: {nrow(get(lab))} rows'))
-    
-  }
   
 # preprocessing ----------------------------------------------------------------
   
@@ -53,13 +56,11 @@
       filter(remove_flag == 0)
     
 
-# step 4: apply feasibility criteria -------------------------------------------
+# step 5: apply feasibility criteria -------------------------------------------
 
   ## boundary definitions 
   
     lab_criteria = hash()
-    # for each lab, store criteria as list of c(low, high)
-    # low and high are included in feasible bounds 
     
     lab_criteria['SOD']   = c(115, 150)
     lab_criteria['UN']    = c(NA, 200)
@@ -86,22 +87,26 @@
     lab_criteria['ALK']   = c(NA, 2000)
     lab_criteria['ALB']   = c(1, 6)
     lab_criteria['GLOB']  = c(1, 16)
-  
-  ## respectively apply criteria 
+    
+  ## initialize exclusion trackers
   
     n_records  = c() 
     n_patients = c()
     
+  ## for each lab, apply exclusion criteria
+    
     for(lab in labs) {
       
+      temp = get(lab)
+      
+      # extract boundaries  
       bounds = lab_criteria[[lab]]
       bounds = str_split(bounds, ' ')
       
       lower  = bounds[[1]] %>% as.numeric()
       upper  = bounds[[2]] %>% as.numeric()
       
-      temp = get(lab)
-      
+      # perform filter. account for missing upper / lower boundary 
       if (!is.na(lower) & !is.na(upper)) {
         temp_filtered = temp %>% 
           filter(VALUE >= lower & VALUE <= upper)
@@ -113,12 +118,14 @@
           filter(VALUE <= upper)
       }
       
+      # exclusion tracking 
       temp_n_records  = get_n_records(temp_filtered) %>% format(big.mark = ',') 
       temp_n_patients = get_n_patients_within_index(temp_filtered, working_data) %>% format(big.mark = ',')
       
       n_records  = c(n_records, temp_n_records)
       n_patients = c(n_patients, temp_n_patients)
       
+      # update local environment with new lab data 
       message(glue('Dropped {nrow(temp) - nrow(temp_filtered)} rows outside of range {lower}-{upper} for {lab}'))
       
       assign(lab, temp_filtered) 
@@ -138,17 +145,22 @@
     patient_exclusions = rbind(patient_exclusions, n_patients) 
 
 
-# step 5: filter based on hospitalization date ---------------------------------
-
-  ## exclude labs within 1 week pre/post hosp 
-  
+# step 6: filter based on hospitalization date ---------------------------------
+    
+  ## initialize exclusion trackers 
+    
     n_records  = c()
     n_patients = c()
-    
+
+  ## for each lab, exclude records within 1 week of hospitalization 
+  
     for(lab in labs) {
       
       temp = get(lab)
       
+      # mark records for exclusion. exclusion defined as: 
+      # - date within 1 week before admission 
+      # - date within 1 week after discharge 
       exclude_records = temp %>%
         left_join(hosp_filtered %>% select(-EncounterID), by = 'PatientID', relationship = 'many-to-many') %>%
         mutate(
@@ -160,15 +172,18 @@
         select(PatientID, EncounterID, CollectionDate) %>%
         distinct()
       
+      # apply filter 
       temp_filtered = temp %>%
         anti_join(exclude_records, by = c('PatientID', 'EncounterID', 'CollectionDate'))
       
+      # exclusion tracking 
       temp_n_records  = get_n_records(temp_filtered) %>% format(big.mark = ',')
       temp_n_patients = get_n_patients_within_index(temp_filtered, working_data) %>% format(big.mark = ',')
       
       n_records  = c(n_records, temp_n_records)
       n_patients = c(n_patients, temp_n_patients)
       
+      # update local environment with new lab data 
       message(glue('Dropped {nrow(temp) - nrow(temp_filtered)} rows within 1w pre - 1w post hospitalization {lab}'))
       
       assign(lab, temp_filtered)
@@ -184,13 +199,15 @@
     patient_exclusions = rbind(patient_exclusions, n_patients)
 
 
-# step 6: remove outliers (relative to patient) --------------------------------
-
-  ## remove values >3SD from patient's median 
-  
+# step 7: remove outliers (relative to patient) --------------------------------
+    
+  ## initialize exclusion trackers 
+    
     n_records  = c() 
     n_patients = c()
-    
+
+  ## for each lab, remove values >3SD from patient's median 
+  
     for(lab in labs) {
       
       temp = get(lab) 
@@ -213,12 +230,14 @@
         ) %>% 
         filter(filter_flag == 0)
       
+      # exclusion tracking 
       temp_n_records  = get_n_records(temp_filtered) %>% format(big.mark = ',') 
       temp_n_patients = get_n_patients_within_index(temp_filtered, working_data) %>% format(big.mark = ',')
       
       n_records  = c(n_records, temp_n_records)
       n_patients = c(n_patients, temp_n_patients)
       
+      # update local environment with new lab data  
       message(glue('Dropped {nrow(temp) - nrow(temp_filtered)} rows >3SD from median for {lab}'))
       
       assign(lab, temp_filtered)
@@ -235,17 +254,20 @@
     patient_exclusions = rbind(patient_exclusions, n_patients) 
 
 
-# step 7: filter based on index date -------------------------------------------
-
-  ## join index dates to labs, filter to +/- one year from index
+# step 8: filter based on index date -------------------------------------------
+    
+  ## initialize exclusion trackers 
     
     n_records  = c() 
     n_patients = c()
+
+  ## join index dates to labs, filter to +/- one year from index
     
     for(lab in labs) {
       
       temp = get(lab)
       
+      # join index dates, then mark records within one year 
       temp = temp %>% 
         left_join(  
           working_data %>% select(PatientID, date.index) %>% distinct(), 
@@ -257,14 +279,17 @@
           one_year_flag = ifelse(abs_date_diff < 365.25, 1, 0)
         )
       
+      # apply filter 
       temp_filtered = temp %>% filter(one_year_flag == 1)
       
+      # exclusion tracking  
       temp_n_records  = get_n_records(temp_filtered) %>% format(big.mark = ',') 
       temp_n_patients = get_n_patients_within_index(temp_filtered %>% select(-date.index), working_data) %>% format(big.mark = ',')
       
       n_records  = c(n_records, temp_n_records)
       n_patients = c(n_patients, temp_n_patients)
-      
+     
+      # update local environment with new lab data  
       message(glue('Dropped {nrow(temp) - nrow(temp_filtered)} rows outside index date range for {lab}'))
       
       assign(lab, temp_filtered)
@@ -281,7 +306,7 @@
     patient_exclusions = rbind(patient_exclusions, n_patients) 
     
     
-# step 8: consistency filter for elevated lab values ---------------------------
+# step 9: consistency filter for elevated lab values ---------------------------
     
   ## elevated definitions 
     
@@ -314,7 +339,7 @@
     }
     
 
-# step 9: final transformation -------------------------------------------------
+# step 10: final transformation ------------------------------------------------
 
   ## calculate median of values +/- one year from index 
     
@@ -322,11 +347,13 @@
       
       lab_name = paste0('MEDIAN_', lab)
       
+      # calculate median of all remaining records 
       temp = get(lab) 
       temp_medians = temp %>% 
         group_by(PatientID, date.index) %>% 
         summarize({{lab_name}} := median(VALUE))
       
+      # update local environment with new lab data 
       message(glue('Finished calculation for {lab}'))
       
       assign(lab, temp_medians) 
